@@ -1,0 +1,46 @@
+WEBVTT
+
+00:00:00.165 --> 00:00:03.916
+JNB Steel | One workspace for customer orders, stock and dispatch.
+
+00:00:03.916 --> 00:00:07.356
+1. Review pending orders, delivery commitments and stock priorities.
+
+00:00:07.356 --> 00:00:10.406
+2. Find the customer PO, promised date and size-wise order.
+
+00:00:10.406 --> 00:00:14.315
+SO-26048: square tube is 580 kg short. Allocation waits for stock.
+
+00:00:14.315 --> 00:00:16.645
+3. Store records a 1,000 kg receipt for the exact product variant.
+
+00:00:16.645 --> 00:00:19.133
+The shortage is resolved. Sales and store now see the same free stock.
+
+00:00:19.133 --> 00:00:22.135
+4. Allocate 1,500 kg square tube and 500 kg rectangular tube.
+
+00:00:22.135 --> 00:00:24.503
+5. Plan an 800 kg partial load. The rest stays reserved.
+
+00:00:24.503 --> 00:00:27.483
+The dispatch plan carries the customer, PO, sizes and quantities.
+
+00:00:27.483 --> 00:00:30.128
+6. Confirm vehicle, packing and gross weight before the load leaves.
+
+00:00:30.128 --> 00:00:33.430
+Moving to transit issues the 800 kg once. Repeated updates do not deduct again.
+
+00:00:33.430 --> 00:00:36.769
+7. The order remains open: 800 kg dispatched, 1,200 kg still to dispatch.
+
+00:00:36.769 --> 00:00:39.853
+Order quantities and pending material value stay consistent across screens.
+
+00:00:39.853 --> 00:00:42.943
+On-hand, reserved and free kg update together for each grade and size.
+
+00:00:42.943 --> 00:00:45.957
+JNB Steel demo | Built by Software Crafting Technologies | Sample data

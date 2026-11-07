@@ -1,0 +1,306 @@
+(() => {
+  'use strict';
+  const SEED = window.JNB_DEMO, KEY = 'jnb-steel-demo-v1';
+  const clone = value => JSON.parse(JSON.stringify(value));
+  let state = clone(SEED);
+  try { const saved = JSON.parse(localStorage.getItem(KEY)); if (saved?.version === SEED.version) state = saved; } catch { /* Same-tab file fallback below. */ }
+  if (window.name.startsWith(KEY + ':')) {
+    try { const saved = JSON.parse(window.name.slice(KEY.length + 1)); if (saved?.version === SEED.version && (saved.updatedAt || 0) > (state.updatedAt || 0)) state = saved; } catch { /* Keep the seed. */ }
+  }
+  const page = document.body.dataset.dsPage, isApp = !['overview','map'].includes(page), root = isApp ? '../' : '';
+  const main = document.querySelector('[data-ds-content]'), params = new URLSearchParams(location.search);
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const icon = (name, small = false) => `<svg class="ds-icon${small ? ' ds-icon--sm' : ''}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+  const url = (file, query = '') => `${isApp ? '' : 'pages/'}${file}.html${query ? '?' + query : ''}`;
+  const money = n => new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',minimumFractionDigits:0,maximumFractionDigits:2}).format(n);
+  const compactMoney = n => new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',notation:'compact',maximumFractionDigits:1}).format(n);
+  const num = n => new Intl.NumberFormat('en-IN',{maximumFractionDigits:1}).format(n);
+  const kg = n => num(n) + ' kg';
+  const date = value => new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'Asia/Kolkata'}).format(new Date(value+'T12:00:00Z'));
+  const today = () => new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+  const round = n => Math.round((n + Number.EPSILON) * 10) / 10;
+  const who = () => state.personas[state.role];
+  const productOf = sku => state.products.find(p => p.sku === sku);
+  const customerOf = order => state.customers.find(c => c.id === order.customer);
+  const orderOf = dispatch => state.orders.find(o => o.id === dispatch.order);
+  const dispatchesOf = order => state.dispatches.filter(d => d.order === order.id);
+  const pendingKg = order => round(order.lines.reduce((sum,l) => sum + l.qty-l.dispatched,0));
+  const total = order => order.lines.reduce((sum,l) => sum+l.qty*l.rate,0);
+  const pendingValue = order => order.lines.reduce((sum,l) => sum+(l.qty-l.dispatched)*l.rate,0);
+  const reserved = sku => round(state.orders.reduce((sum,o) => sum+o.lines.filter(l => l.sku === sku).reduce((s,l) => s+l.reserved,0),0));
+  const available = sku => round(productOf(sku).onHand-reserved(sku));
+  const needed = line => round(line.qty-line.dispatched-line.reserved);
+  const shortages = order => order.lines.filter(l => needed(l)>available(l.sku));
+  const planned = order => dispatchesOf(order).find(d => !d.posted);
+  const statusOf = order => {
+    if (!pendingKg(order)) return dispatchesOf(order).every(d => d.status === 'Delivered') ? 'Delivered' : 'Fully dispatched';
+    if (planned(order)) return 'Dispatch planned';
+    if (order.lines.some(l => l.dispatched>0)) return 'Part dispatched';
+    if (order.lines.every(l => !needed(l))) return 'Ready to dispatch';
+    return shortages(order).length ? 'Stock shortage' : 'Awaiting allocation';
+  };
+  const dispatchKg = d => round(d.lines.reduce((sum,l) => sum+l.qty,0));
+  const dispatchValue = d => d.lines.reduce((sum,l) => sum+l.qty*orderOf(d).lines.find(x => x.sku === l.sku).rate,0);
+  const openOrders = () => state.orders.filter(o => pendingKg(o)>0);
+  const orderStatuses = ['Stock shortage','Awaiting allocation','Ready to dispatch','Dispatch planned','Part dispatched','Fully dispatched','Delivered'];
+  const stages = ['Preparing','In transit','Delivered'];
+  const badge = status => {
+    const tone = {'Stock shortage':'danger','Awaiting allocation':'warning','Ready to dispatch':'success','Dispatch planned':'info','Part dispatched':'primary','Fully dispatched':'info','Delivered':'success','Preparing':'warning','In transit':'primary','Low stock':'warning','Available':'success'}[status] || 'neutral';
+    return `<span class="ds-badge ds-badge--dot ds-badge--${tone}">${esc(status)}</span>`;
+  };
+  const button = (text, action, name = '', variant = 'secondary', attrs = '') => `<button type="button" class="ds-btn ds-btn--${variant}" data-ds-action="${action}" ${attrs}>${name ? icon(name, true) : ''}${esc(text)}</button>`;
+  const link = (text, href, variant = 'secondary', name = '') => `<a class="ds-btn ds-btn--${variant}" href="${href}">${name ? icon(name, true) : ''}${esc(text)}</a>`;
+  const card = (title, desc, body, action = '') => `<section class="ds-card"><div class="ds-card__head ds-demo__card-head"><div class="ds-demo__card-heading"><h2 class="ds-card__title">${title}</h2>${desc ? `<p class="ds-card__desc">${desc}</p>` : ''}</div>${action}</div><div class="ds-card__body">${body}</div></section>`;
+  const alert = (title, text, tone = 'info') => `<div class="ds-alert ds-alert--${tone}" role="status">${icon(tone === 'warning' ? 'alert-triangle' : tone === 'success' ? 'check-circle' : 'info').replace('ds-icon\"', 'ds-icon ds-alert__icon\"')}<div class="ds-alert__body"><p class="ds-alert__title">${esc(title)}</p><p>${esc(text)}</p></div></div>`;
+  const dl = items => `<dl class="ds-dl">${items.map(([key,value]) => `<div class="ds-dl__row"><dt>${esc(key)}</dt><dd class="ds-demo__responsive-text">${value}</dd></div>`).join('')}</dl>`;
+  const stat = (label,value,note) => `<li class="ds-stat"><p class="ds-stat__label">${label}</p><p class="ds-stat__value${(String(value).includes('₹') || String(value).endsWith(' kg')) ? ' ds-demo__stat-compact' : ''}">${value}</p><p class="ds-demo__metric-note">${note}</p></li>`;
+  const field = (id,label,type = 'text',value = '',attrs = '') => `<div class="ds-field"><label class="ds-field__label" for="${id}">${esc(label)}</label><div class="ds-input"><input class="ds-input__control" id="${id}" name="${id}" type="${type}" value="${esc(value)}" ${attrs}></div></div>`;
+  const textarea = (id,label,value = '',attrs = '') => `<div class="ds-field"><label class="ds-field__label" for="${id}">${esc(label)}</label><div class="ds-scroll-area" data-ds-scroll-area><textarea class="ds-textarea ds-scroll ds-scroll--y" id="${id}" name="${id}" rows="3" ${attrs}>${esc(value)}</textarea></div></div>`;
+  const select = (id,label,options,value,attrs = '') => `<div class="ds-field"><span class="ds-field__label" id="${id}-label">${esc(label)}</span><div class="ds-select" data-ds-select><button type="button" class="ds-select__trigger" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="${id}-label ${id}-value"><span class="ds-select__value" id="${id}-value">${esc(options.find(o => o[0] === value)?.[1] || options[0][1])}</span>${icon('chevrons-up-down',true).replace('ds-icon--sm','ds-icon--sm ds-select__chevron')}</button><div class="ds-select__popup ds-scroll-area" data-ds-scroll-area hidden><ul class="ds-select__list ds-scroll ds-scroll--y" role="listbox" tabindex="-1" aria-labelledby="${id}-label">${options.map(([v,l],i) => `<li class="ds-select__option" role="option" id="${id}-option-${i}" data-value="${esc(v)}" aria-selected="${v === value}"><span>${esc(l)}</span>${icon('check',true).replace('ds-icon--sm','ds-icon--sm ds-select__check')}</li>`).join('')}</ul></div><input type="hidden" name="${id}" id="${id}" value="${esc(value)}" ${attrs}></div></div>`;
+  const empty = (title,text,action = '') => `<div class="ds-empty ds-demo__empty"><span class="ds-empty__icon">${icon('inbox')}</span><h2 class="ds-empty__title">${esc(title)}</h2><p class="ds-empty__text">${esc(text)}</p>${action ? `<div class="ds-empty__actions">${action}</div>` : ''}</div>`;
+  const timeline = events => `<ol class="ds-timeline">${events.map(e => `<li class="ds-timeline__item"><span class="ds-timeline__marker${e.status === 'Delivered' ? ' ds-timeline__marker--success' : ''}">${icon(e.status === 'Delivered' ? 'check' : 'clock',true)}</span><div class="ds-timeline__body"><p class="ds-timeline__title">${esc(e.status || e.title)}</p><time class="ds-timeline__time" datetime="${esc(e.date)}">${date(e.date)}${e.by ? ' · ' + esc(e.by) : ''}</time>${e.text ? `<p class="ds-timeline__text">${esc(e.text)}</p>` : ''}</div></li>`).join('')}</ol>`;
+
+  function save() {
+    state.updatedAt = Date.now();
+    window.name = KEY + ':' + JSON.stringify(state);
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* Same-tab persistence remains available. */ }
+  }
+  function go(message,href = location.href) { state.flash=message; save(); const next=new URL(href,location.href); if(next.pathname===location.pathname && next.search===location.search){history.replaceState(null,'',next.href);location.reload();} else location.href=next.href; }
+  function toast(message,tone = 'success') { window.DS.toast({message,tone}); }
+  function dialog(id,title,description,body,submit = '',form = '') {
+    return `<dialog class="ds-dialog${['new-order','new-customer','new-dispatch','update-dispatch','walkthrough-video'].includes(id) ? ' ds-dialog--lg' : ''}" id="${id}" aria-labelledby="${id}-title"><form class="ds-demo__form" ${form ? `data-ds-form="${form}"` : ''}><div class="ds-dialog__head"><div><h2 class="ds-dialog__title" id="${id}-title">${title}</h2><p class="ds-dialog__desc">${description}</p></div><button type="button" class="ds-btn ds-btn--ghost ds-btn--icon ds-btn--sm" data-ds-dialog-close aria-label="Close ${title.toLowerCase()}">${icon('x')}</button></div><div class="ds-scroll-area" data-ds-scroll-area><div class="ds-dialog__body ds-scroll ds-scroll--y ds-demo__form">${body}<p class="ds-demo__form-error" data-ds-form-error role="alert" hidden></p></div></div><div class="ds-dialog__foot"><button type="button" class="ds-btn ds-btn--secondary" data-ds-dialog-close>${submit ? 'Cancel' : 'Close'}</button>${submit ? `<button class="ds-btn ds-btn--primary" type="submit">${submit}</button>` : ''}</div></form></dialog>`;
+  }
+  function table(id,label,columns,rows,{search = false,selection = false,filter = '',tools = '',pageSize = false} = {}) {
+    const count = columns.length + (selection ? 1 : 0);
+    const sortOptions = [['default','Default order'], ...columns.flatMap((column,index) => column === 'Action' ? [] : [[index+':ascending',column.replace(' (INR)','').replace(' (kg)','')+': ascending'],[index+':descending',column.replace(' (INR)','').replace(' (kg)','')+': descending']])];
+    const sortControl = select(id+'-sort','Sort by',sortOptions,'default',`data-ds-sort-table="${id}"`).replace('class="ds-field"','class="ds-field ds-demo__sort-field"');
+    return `<div class="ds-data-table${search ? ' ds-demo__records' : ''}" ${search ? 'data-ds-data-table' : ''}>
+      ${search ? `<div class="ds-data-table__toolbar"><div class="ds-input ds-data-table__filter">${icon('search').replace('ds-icon"','ds-icon ds-input__icon"')}<input class="ds-input__control" type="search" value="${esc(filter)}" placeholder="Search ${label.toLowerCase()}" aria-label="Search ${label.toLowerCase()}" data-ds-data-table-filter></div>${tools}${sortControl}<span class="ds-spacer"></span>${button('Export CSV','export','download','secondary',`data-ds-table-id="${id}"`)}</div>` : ''}
+      ${selection ? `<div class="ds-table-bulk" data-ds-table-bulk="${id}" hidden><span data-ds-table-count aria-live="polite">0 selected</span><span class="ds-spacer"></span>${button('Export selected','export','download','ghost',`data-ds-table-id="${id}" data-ds-selected`)}</div>` : ''}
+      <div class="ds-table-wrap ds-scroll-area" data-ds-scroll-area><div class="ds-scroll ds-scroll--x" tabindex="0" role="region" aria-labelledby="${id}-caption"><table class="ds-table ds-table--stack" id="${id}"><caption class="ds-sr-only" id="${id}-caption">${label}</caption><thead><tr>${selection ? '<th scope="col" class="ds-table__check"><input class="ds-check__input" type="checkbox" data-ds-table-select-all aria-label="Select all rows"></th>' : ''}${columns.map(c => `<th scope="col">${c === 'Action' ? '<span class="ds-sr-only">Action</span>' : `<button type="button" class="ds-table__sort" data-ds-table-sort>${c}${icon('chevrons-up-down',true)}</button>`}</th>`).join('')}</tr></thead><tbody>${rows.map((cells,i) => `<tr>${selection ? `<td class="ds-table__check"><input class="ds-check__input" type="checkbox" data-ds-table-select aria-label="Select row ${i+1}"></td>` : ''}${cells.map((cell,i) => `<td data-label="${({'Order value (INR)':'Value (INR)','Pending value (INR)':'Pending (INR)','Base value (INR)':'Value (INR)','Rate (INR/kg)':'Rate (INR/kg)','Value (INR)':'Value (INR)'})[columns[i]] || (columns[i] === 'Action' ? '' : columns[i])}"${columns[i] === 'Action' ? ' class="ds-table__actions"' : ''}${typeof cell === 'object' ? ` data-sort-value="${esc(cell.sort)}"` : typeof cell === 'string' && /^[\d,.]+ kg$/.test(cell) ? ` data-sort-value="${cell.replace(/[^\d.]/g,'')}"` : ''}><div class="ds-demo__cell">${typeof cell === 'object' ? cell.html : cell}</div></td>`).join('')}</tr>`).join('')}<tr class="ds-table__empty" ${rows.length ? 'hidden' : ''}><td colspan="${count}"><strong>No ${label.toLowerCase()} found</strong><p>Try another search or clear the filters.</p>${search ? button('Clear search','clear-search','','ghost') : ''}</td></tr></tbody></table></div></div>
+      ${search ? `<div class="ds-data-table__pager"><p data-ds-data-table-status aria-live="polite"></p><div class="ds-data-table__pager-controls">${pageSize ? `<div class="ds-data-table__size">${select(id+'-size','Rows per page',[['5','5'],['10','10'],['25','25']],'5','data-ds-data-table-size')}</div>` : ''}<button type="button" class="ds-btn ds-btn--secondary ds-btn--icon ds-btn--sm" data-ds-data-table-prev aria-label="Previous page">${icon('chevron-left',true)}</button><button type="button" class="ds-btn ds-btn--secondary ds-btn--icon ds-btn--sm" data-ds-data-table-next aria-label="Next page">${icon('chevron-right',true)}</button></div></div>` : ''}</div>`;
+  }
+  const pageList = [
+    ['Dashboard','dashboard','dashboard','See order value, stock priorities and delivery commitments.'],
+    ['Orders','orders','inbox','Capture dealer and industrial orders with sizes and promise dates.'],
+    ['Order detail','order-detail','file-text','Review grade-wise lines, allocate stock and plan a dispatch.'],
+    ['Stock','stock','package','Check on-hand, reserved and free kg for every size.'],
+    ['Dispatches','dispatches','truck','Keep planned, in-transit and delivered loads visible.'],
+    ['Dispatch detail','dispatch-detail','file-text','Check quantities, packing, vehicle and delivery milestones.'],
+    ['Customers','customers','users','Keep dealer and industrial buyer order histories together.']
+  ];
+  const moneyCell = value => `<span class="ds-demo__money">${money(value)}</span>`;
+  const primary = (title,sub,href = '') => `<span class="ds-demo__cell-heading">${href ? `<a class="ds-table__primary" href="${href}">${esc(title)}</a>` : `<span class="ds-table__primary">${esc(title)}</span>`}<span class="ds-table__sub">${esc(sub)}</span></span>`;
+  const orderRow = order => [primary(order.id,order.po,url('order-detail','id='+order.id)),primary(customerOf(order).name,customerOf(order).city),badge(statusOf(order)),kg(pendingKg(order)),{html:date(order.due),sort:order.due},{html:moneyCell(total(order)),sort:total(order)},link('Open',url('order-detail','id='+order.id),'ghost','arrow-right')];
+  const dispatchRow = d => [primary(d.id,d.order,url('dispatch-detail','id='+d.id)),primary(customerOf(orderOf(d)).name,customerOf(orderOf(d)).city),badge(d.status),kg(dispatchKg(d)),esc(d.vehicle),{html:date(d.eta),sort:d.eta},link('Track',url('dispatch-detail','id='+d.id),'ghost','arrow-right')];
+  const orderTable = (orders, options = {}) => table('orders-table','Orders',['Order','Customer','Status','Pending','Promise','Order value (INR)','Action'],orders.map(orderRow),{search:true,selection:true,pageSize:true,...options});
+  const emptyScreen = (title,text,file) => empty(title,text,link('View '+file,url(file),'primary'));
+
+  function common() {
+    const nav = document.querySelector('[data-ds-nav]');
+    if (nav) nav.innerHTML = `<p class="ds-sidebar__group-label">Order operations</p><ul class="ds-sidebar__list">${[['dashboard','dashboard','Dashboard'],['orders','inbox','Orders'],['stock','package','Stock'],['dispatches','truck','Dispatches'],['customers','users','Customers']].map(([file,i,label]) => `<li><a class="ds-sidebar__link" href="${url(file)}" ${page === file || (page === 'order-detail' && file === 'orders') || (page === 'dispatch-detail' && file === 'dispatches') ? 'aria-current="page"' : ''}>${icon(i)}<span class="ds-sidebar__text">${label}</span>${file==='orders' ? `<span class="ds-sidebar__badge">${openOrders().length}</span>` : ''}</a></li>`).join('')}</ul><p class="ds-sidebar__group-label">Demo guide</p><ul class="ds-sidebar__list"><li><a class="ds-sidebar__link" href="../index.html">${icon('home')}<span class="ds-sidebar__text">Overview</span></a></li><li><a class="ds-sidebar__link" href="../map.html">${icon('layers')}<span class="ds-sidebar__text">Page map</span></a></li></ul>`;
+    const role = document.querySelector('[data-ds-role]');
+    if (role) role.innerHTML = select('demo-role','View as',['Owner','Sales','Store','Dispatch'].map(x => [x,x]),state.role);
+    const persona = document.querySelector('[data-ds-persona]');
+    if (persona) persona.innerHTML = `<span class="ds-sidebar__avatar" aria-hidden="true">${esc(who().split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase())}</span><span class="ds-sidebar__user-text">${esc(who())}<br><span class="ds-caption">${state.role} demo view</span></span>`;
+    document.querySelector('[data-ds-date]')?.replaceChildren(document.createTextNode(date(state.asOf)));
+    document.querySelector('[data-ds-dialogs]').innerHTML = dialog('about-demo','About this demo','A working concept for JNB Steel Industries.',`${alert('Fictional sample data','Customers, sizes, rates, stock, order promises and vehicle details are illustrative.')}<p>Sales records the buyer’s sizes and delivery promise. Store staff check free kg and allocate stock. Dispatch plans the load and records movement and delivery.</p><p>Try SO-26048: receive 1,000 kg of SS-202-SQ-025, allocate the order, create a partial dispatch, then move it to transit.</p><p>Changes stay in this browser. Role choices are walkthrough views. No live stock, carrier, messaging or accounting service is connected.</p>${button('Reset sample data','reset','refresh','secondary','data-ds-confirm="Reset the demo?" data-ds-confirm-body="This removes local changes and restores the sample records." data-ds-confirm-action="Reset sample data"')}`);
+  }
+  function videoDialog() {
+    return dialog('walkthrough-video','JNB Steel walkthrough','A silent demonstration with step captions.',`<video class="ds-demo__video" controls playsinline preload="none" poster="assets/walkthrough-poster.png" aria-label="JNB Steel order, allocation and partial dispatch walkthrough"><source src="assets/jnb-steel-walkthrough.webm" type="video/webm"><track kind="captions" src="assets/walkthrough.vtt" srclang="en" label="English walkthrough">Your browser can download the walkthrough using the link below.</video><p class="ds-small ds-muted">Fictional data. The video shows stock receipt, allocation and a partial dispatch.</p><a href="assets/jnb-steel-walkthrough.webm" download>Download the video</a><details><summary>Read the walkthrough steps</summary><ol class="ds-demo__walkthrough-text"><li>Review JNB Steel’s dashboard, customer orders and delivery commitments.</li><li>Open SO-26048. Its square tube line needs stock before allocation.</li><li>Receive 1,000 kg of SS-202-SQ-025 and return to the order.</li><li>Allocate both product lines against free stock.</li><li>Plan a partial load of 600 kg square tube and 200 kg rectangular tube.</li><li>Add packing and vehicle details, then move the 800 kg load to transit. Stock is issued once.</li><li>The order shows 1,200 kg still to dispatch. The balance remains reserved.</li></ol></details>`);
+  }
+  function overview() {
+    main.innerHTML = `<section class="ds-hero ds-hero--split" aria-labelledby="overview-title"><div class="ds-container ds-hero__inner"><div class="ds-hero__content"><span class="ds-hero__badge">${icon('layers',true)}Coils, pipes, tubes and wires</span><h1 class="ds-hero__title" id="overview-title">JNB Steel</h1><p class="ds-hero__lead">Every order. Every size. Every dispatch.</p><p class="ds-small ds-muted">Keep sales and stores working from the same order, with grade, dimensions, available kg and delivery promises in one place.</p><div class="ds-hero__actions">${link('Open the workspace',url('dashboard'),'primary','arrow-right')}${button('Watch short demo','watch-video','play')}</div><p class="ds-hero__note">Interactive concept · Hisar, Haryana · Fictional sample data</p></div><div class="ds-demo__preview"><div class="ds-demo__preview-head ds-demo__line"><div><p class="ds-eyebrow">One shared order</p><h2 class="ds-h3">From sales to the loading bay</h2></div>${icon('truck')}</div>${[['inbox','01','Record the commitment','Buyer PO, steel grade, size, kg and promised date.'],['package','02','Allocate the right stock','See free stock after existing reservations.'],['truck','03','Keep the balance visible','Partial dispatches update stock and the order balance.']].map(([i,n,t,d]) => `<div class="ds-demo__preview-stage"><span class="ds-demo__row-icon">${icon(i)}</span><div class="ds-demo__row-body"><small>Step ${n}</small><strong>${t}</strong><small>${d}</small></div></div>`).join('')}<div class="ds-demo__banner">${icon('link',true)}Sales, store and dispatch see the same quantities.</div></div></div></section><section class="ds-section" aria-labelledby="screens-title"><div class="ds-container"><div class="ds-features__head"><p class="ds-eyebrow">Explore the demo</p><h2 class="ds-h2" id="screens-title">A practical order workspace</h2><p class="ds-lead">Start with SO-26048 to try an order with a stock shortage.</p></div><div class="ds-demo__grid">${[...pageList,['Page map','map','layers','See the handoffs between sales, store and dispatch.']].map(([title,file,i,desc]) => `<article class="ds-card ds-demo__page-card"><div class="ds-card__body"><span class="ds-feature__icon">${icon(i)}</span><h3 class="ds-card__title">${title}</h3><p class="ds-card__desc">${desc}</p></div><div class="ds-card__foot">${link('Open '+title.toLowerCase(),file==='map'?'map.html':url(file),'ghost','arrow-right')}</div></article>`).join('')}</div></div></section><section class="ds-section"><div class="ds-container"><div class="ds-features__head"><p class="ds-eyebrow">A view for each team</p><h2 class="ds-h2">Make every handoff clear</h2></div><div class="ds-demo__grid">${[['Owner','Order value and delivery commitments.'],['Sales','Customer POs, sizes and coordination notes.'],['Store','On-hand kg, reservations and stock receipts.'],['Dispatch','Partial loads, vehicle details and delivery updates.']].map(([t,d]) => `<article class="ds-feature"><h3 class="ds-feature__title">${t}</h3><p class="ds-feature__text">${d}</p></article>`).join('')}</div></div></section>`;
+  }
+  function mapPage() {
+    main.innerHTML = `<section class="ds-container ds-section ds-stack"><header class="ds-page-header"><p class="ds-eyebrow">Demo guide</p><h1 class="ds-page-header__title">Page map</h1><p class="ds-page-header__desc">Follow an order from a buyer’s size list to stock allocation and delivery.</p></header>${alert('A useful starting point','SO-26048 needs square tube stock. Record a receipt, allocate both product lines, then plan a partial load.')}<ol class="ds-stepper" aria-label="Order workflow">${['Order','Allocation','Dispatch','Delivery'].map((t,i)=>`<li class="ds-stepper__step" ${i===0?'aria-current="step"':''}><span class="ds-stepper__marker" aria-hidden="true">${icon('check',true)}</span><span class="ds-stepper__label">${t}</span></li>`).join('')}</ol><div class="ds-demo__grid">${[['Owner and sales','See the commitment',['dashboard','orders','order-detail','customers']],['Store and dispatch','Fulfil the right quantities',['stock','dispatches','dispatch-detail']]].map(([title,desc,files])=>card(title,desc,`<div class="ds-stack">${files.map(f=>{const [t,,i,d]=pageList.find(x=>x[1]===f);return `<a class="ds-demo__map-link" href="${url(f)}"><span>${t}</span>${icon('arrow-right',true)}<small>${d}</small></a>`}).join('')}</div>`)).join('')}</div>${card('The connected path','Every dispatch returns to the source order.',`<div class="ds-stack"><p><a href="${url('customers')}">Customer</a> → <a href="${url('orders')}">Orders</a> → <a href="${url('order-detail')}">Required and reserved kg</a> → <a href="${url('stock')}">Stock receipt</a> → <a href="${url('dispatch-detail')}">Dispatch and delivery</a></p><p>Allocating stock reduces free kg. Physical on-hand stock changes when a planned load moves to transit. A partial load leaves the rest of the order open.</p><div class="ds-demo__actions">${link('Back to overview','index.html')}${link('Open dashboard',url('dashboard'),'primary')}</div></div>`)}</section>`;
+  }
+  function chartHTML() {
+    const labels=['Pipes & tubes','Coils','Wires'];
+    const values=labels.map(f=>round(state.orders.reduce((sum,o)=>sum+o.lines.filter(l=>productOf(l.sku).family===f).reduce((s,l)=>s+l.qty-l.dispatched,0),0)));
+    return `<figure class="ds-chart" data-ds-chart="donut"><figcaption class="ds-chart__head"><span class="ds-chart__heading"><span class="ds-chart__title">Pending kg by product family</span><span class="ds-chart__value">${kg(values.reduce((s,n)=>s+n,0))}</span></span><button type="button" class="ds-btn ds-btn--ghost ds-btn--sm" data-ds-chart-table>${icon('list',true)}View as table</button></figcaption><div class="ds-chart__plot"></div><div class="ds-chart__legend"></div><div class="ds-chart__table" hidden></div><script type="application/json">${JSON.stringify({labels,totalLabel:'Pending kg',series:[{name:'Pending kg',values}]})}</script></figure>`;
+  }
+  function dashboard() {
+    const orders=openOrders().sort((a,b)=>a.due.localeCompare(b.due)), low=state.products.filter(p=>available(p.sku)<p.min), active=state.dispatches.filter(d=>d.status!=='Delivered');
+    const focus={Owner:['Keep today’s commitments visible','Review pending orders and the next loading priorities.','orders','Review orders'],Sales:['Keep the customer promise clear','Check sizes, outstanding kg and the next delivery commitment.','orders','Review orders'],Store:['Allocate against free stock','See which grades and sizes need a receipt before allocation.','stock','Review stock'],Dispatch:['Prepare the next load','Check reserved quantities, vehicle details and delivery milestones.','dispatches','Review dispatches']}[state.role];
+    main.innerHTML=`<div class="ds-demo__callout ds-demo__line"><div><h2 class="ds-h3">${focus[0]}</h2><p>${focus[1]}</p></div>${link(focus[3],url(focus[2]),'primary','arrow-right')}</div><ul class="ds-stats">${stat('Open orders',orders.length,'Dealer and industrial commitments')}${stat('Pending base value',compactMoney(orders.reduce((s,o)=>s+pendingValue(o),0)),'INR · Freight and taxes excluded')}${stat('Low-stock variants',low.length,'Free kg below the sample minimum')}${stat('Active dispatches',active.length,'Preparing or in transit')}</ul><div class="ds-demo__split"><div class="ds-stack">${card('Order mix','A shared view of remaining material.',`<div data-ds-chart-panel>${chartHTML()}</div><details class="ds-demo__preview-states"><summary>Preview loading and error states</summary><div class="ds-demo__state-controls">${button('Loading','panel-loading','','ghost')}${button('Error','panel-error','','ghost')}${button('Restore','panel-restore','','ghost')}</div></details>`)}${card('Delivery commitments','Open orders with the earliest promise dates.',`<ul class="ds-demo__list">${orders.slice(0,4).map(o=>`<li><a class="ds-demo__row-link" href="${url('order-detail','id='+o.id)}"><span class="ds-demo__row-icon">${icon('file-text')}</span><span class="ds-demo__row-body"><strong>${esc(customerOf(o).name)}</strong><small>${o.id} · ${kg(pendingKg(o))} · ${date(o.due)}</small></span>${badge(statusOf(o))}</a></li>`).join('')}</ul>`,link('View all',url('orders'),'ghost'))}</div><div class="ds-stack">${card('Store priorities','Free stock after existing allocations.',`<ul class="ds-demo__list">${low.map(p=>`<li><a class="ds-demo__row-link" href="${url('stock','q='+p.sku)}"><span class="ds-demo__row-icon">${icon('package')}</span><span class="ds-demo__row-body"><strong>${esc(p.name)} · ${p.grade}</strong><small>${p.sku}<br>${kg(available(p.sku))} free · ${kg(p.min)} minimum</small></span>${icon('chevron-right',true)}</a></li>`).join('')||'<li>No variants below their minimum.</li>'}</ul>`,link('View stock',url('stock'),'ghost'))}${card('Dispatch activity','Latest manually recorded milestones.',timeline(state.dispatches.flatMap(d=>d.events.map(e=>({...e,text:d.id+' · '+e.text}))).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,3)))}</div></div>`;
+  }
+  function newLine(index) {
+    return `<fieldset class="ds-demo__note" data-ds-order-line><legend class="ds-small">Product line ${index+1}</legend><div class="ds-demo__form">${select('line-sku-'+index,'Product and size',state.products.map(p=>[p.sku,`${p.sku} · ${p.name} · ${p.grade} · ${p.size}`]),state.products[0].sku,`data-ds-line-product="${index}"`)}<div class="ds-demo__form-grid">${field('line-qty-'+index,'Order quantity (kg)','number','100','required min="0.1" max="1000000" step="0.1"')}${field('line-rate-'+index,'Rate (INR/kg)','number',state.products[0].rate,'required min="0.01" max="1000000" step="0.01"')}</div></div></fieldset>`;
+  }
+  function orders() {
+    const filter=params.get('status')||'All statuses', c=state.customers.find(c=>c.id===params.get('customer'));
+    const list=state.orders.filter(o=>(filter==='All statuses'||statusOf(o)===filter)&&(!c||o.customer===c.id));
+    main.innerHTML=`${c?alert('Orders for '+c.name,'Showing this customer’s orders. Clear filters returns to all customers.'):''}<div class="ds-demo__line"><p class="ds-small ds-muted">${list.length} orders · INR base values · Quantities in kg</p><div class="ds-demo__actions">${c||filter!=='All statuses'?link('Clear filters',url('orders'),'ghost'):''}${button('Add order','open-order','plus','primary')}</div></div>${orderTable(list,{filter:params.get('q')||'',tools:select('order-filter','Status',[['All statuses','All statuses'],...orderStatuses.map(x=>[x,x])],filter,'data-ds-filter-order')})}`;
+    document.querySelector('[data-ds-dialogs]').insertAdjacentHTML('beforeend',dialog('new-order','Add order','Capture the customer PO and promise. Reserve stock after reviewing the sizes.',`${select('order-customer','Customer',state.customers.map(c=>[c.id,c.name]),c?.id||state.customers[0].id)}<div class="ds-demo__form-grid">${field('order-po','Customer PO reference','text','','required maxlength="80"')}${field('order-due','Promised delivery','date',state.asOf,'required')}</div>${field('order-subject','Order description','text','','required maxlength="160"')}${select('order-owner','Sales owner',[['Nikhil Sharma','Nikhil Sharma'],['Ritu Saini','Ritu Saini']],'Nikhil Sharma')}<div data-ds-order-lines>${newLine(0)}</div>${button('Add product line','add-line','plus')}`,'Save order','order'));
+  }
+  function orderDetail() {
+    const o=state.orders.find(o=>o.id===(params.get('id')||'SO-26048'));
+    if(!o){main.innerHTML=emptyScreen('Order not found','This record is not in the current demo.','orders');return;}
+    document.querySelector('h1').textContent=o.id;document.querySelector('[data-ds-subtitle]').textContent=o.subject;
+    const c=customerOf(o), d=planned(o), short=shortages(o), needs=o.lines.some(l=>needed(l)>0), canDispatch=o.lines.some(l=>l.reserved>0);
+    let actions=link('All orders',url('orders'),'ghost');
+    if(d)actions+=link('Open planned dispatch',url('dispatch-detail','id='+d.id),'primary','truck');
+    else if(needs)actions+=button('Allocate stock','allocate','package','primary');
+    if(!d&&canDispatch)actions+=button('Create dispatch','open-new-dispatch','truck',needs?'secondary':'primary');
+    const rows=o.lines.map(l=>{const p=productOf(l.sku);return [primary(p.sku,p.name),primary(p.grade+' · '+p.finish,p.size+' mm'),kg(l.qty),kg(l.reserved),kg(l.dispatched),kg(available(l.sku)),{html:moneyCell(l.qty*l.rate),sort:l.qty*l.rate}];});
+    const shortageMessage=short.length?alert('Stock needed before full allocation',short.map(l=>`${l.sku}: ${kg(round(needed(l)-available(l.sku)))} short`).join('; '),'warning'):pendingKg(o)?alert(needs?'Stock is available to allocate':'Remaining quantities are reserved',needs?'Review the grades and sizes, then allocate the required kg.':'Create a full or partial dispatch against the reserved quantities.','success'):alert('The full order quantity has been dispatched','Open the linked dispatches to see delivery milestones.','success');
+    const panels=[['allocation','Products and allocation',`<div class="ds-stack">${shortageMessage}${card('Order quantities','All dimensions are in mm. Stock and order quantities are in kg.',table('order-lines','Order product lines',['Product','Grade and size','Ordered','Reserved','Dispatched','Free stock','Value (INR)'],rows))}${short.length?card('Resolve the shortage','Record incoming material in the stock view, then return here.',`<div class="ds-stack">${short.map(l=>link('Receive '+l.sku,url('stock','q='+l.sku+'&return='+o.id),'secondary','plus')).join('')}</div>`):''}${card('Customer commitment','The same PO and promise date stay with every dispatch.',dl([['Customer',`<a href="${url('customers','q='+encodeURIComponent(c.name))}">${esc(c.name)}</a>`],['Customer type',esc(c.type)],['Contact',esc(c.contact)+' · '+esc(c.email)],['Delivery city',esc(c.city)],['Customer PO',esc(o.po)],['Promised delivery',date(o.due)],['Sales owner',esc(o.owner)],['Payment terms',esc(c.terms)]]))}</div>`],['values','Order value',`<div class="ds-stack">${card('Material value','Illustrative INR/kg rates. Freight and taxes are excluded.',table('order-values','Order value lines',['Product','Grade and size','Order kg','Rate (INR/kg)','Value (INR)'],o.lines.map(l=>{const p=productOf(l.sku);return [primary(p.sku,p.name),primary(p.grade,p.size+' mm'),kg(l.qty),moneyCell(l.rate),moneyCell(l.qty*l.rate)];})))}<div class="ds-demo__grid">${card('Full order base value',o.lines.length+' product lines.',`<p class="ds-demo__quote-total">${money(total(o))}</p><p class="ds-small ds-muted">Material only. This is demonstration pricing.</p>`)}${card('Pending base value',kg(pendingKg(o))+' still to dispatch.',`<p class="ds-demo__quote-total">${money(pendingValue(o))}</p><div class="ds-demo__actions">${button('Download order','download-order','download')}</div>`)}</div></div>`],['dispatches','Dispatches',`<div class="ds-stack">${dispatchesOf(o).length?card('Linked dispatches','Partial loads remain linked to the original order.',table('linked-dispatches','Linked dispatches',['Dispatch','Status','Net kg','ETA','Action'],dispatchesOf(o).map(d=>[primary(d.id,d.vehicle),badge(d.status),kg(dispatchKg(d)),date(d.eta),link('Track',url('dispatch-detail','id='+d.id),'ghost','arrow-right')]))):empty('No dispatch planned','Allocate stock, then create the first load for this order.')}${alert('A partial load keeps the balance open','Dispatch planning holds the reservation. On-hand stock and dispatched kg change once when the load moves to transit.')}</div>`],['notes','Notes',card('Coordination notes','Keep size confirmations and delivery instructions with the order.',`<div class="ds-stack">${o.notes.length?o.notes.map(n=>`<article class="ds-demo__note"><p>${esc(n.text)}</p><small>${esc(n.by)} · ${date(n.date)}</small></article>`).join(''):'<p class="ds-small ds-muted">No notes yet. Add a customer instruction or internal handoff.</p>'}<form class="ds-demo__form" data-ds-form="note">${textarea('note-text','Add a note','','required maxlength="2000"')}<div><button class="ds-btn ds-btn--primary" type="submit">Save note</button></div></form></div>`)] ];
+    main.innerHTML=`<div class="ds-demo__line"><div class="ds-demo__actions">${badge(statusOf(o))}<span class="ds-small ds-muted">${esc(c.name)} · ${esc(c.city)}</span></div><div class="ds-demo__actions">${actions}</div></div><div class="ds-tabs" data-ds-tabs data-ds-tabs-hash><div class="ds-scroll-area" data-ds-scroll-area><div class="ds-scroll ds-scroll--x"><div class="ds-tabs__list" role="tablist" aria-label="Order sections">${panels.map(([id,title],i)=>`<button class="ds-tabs__tab" type="button" role="tab" id="tab-${id}" aria-controls="${id}" aria-selected="${i===0}" tabindex="${i===0?0:-1}">${title}</button>`).join('')}</div></div></div>${panels.map(([id,,body],i)=>`<div class="ds-tabs__panel" role="tabpanel" id="${id}" aria-labelledby="tab-${id}" tabindex="0" ${i?'hidden':''}>${body}</div>`).join('')}</div>`;
+    if(!d&&canDispatch)document.querySelector('[data-ds-dialogs]').insertAdjacentHTML('beforeend',dialog('new-dispatch','Create dispatch','Choose all or part of the reserved kg. Zero leaves a product out of this load.',`${o.lines.map((l,i)=>field('dispatch-qty-'+i,l.sku+' · '+kg(l.reserved)+' reserved','number',l.reserved,`required min="0" max="${l.reserved}" step="0.1"`)).join('')}${field('dispatch-eta','Expected arrival','date',o.due,'required')}${textarea('dispatch-note','Packing instruction','','maxlength="1000"')}`,'Create dispatch','dispatch-plan'));
+  }
+  function stock() {
+    const family=params.get('family')||'All families';
+    const list=state.products.filter(p=>family==='All families'||p.family===family);
+    main.innerHTML=`${params.get('return')?alert('Stock receipt for '+params.get('return'),'After recording the receipt, you will return to the order for allocation.'):''}<ul class="ds-stats">${stat('On-hand stock',kg(state.products.reduce((s,p)=>s+p.onHand,0)),'Physical demonstration stock')}${stat('Reserved stock',kg(state.products.reduce((s,p)=>s+reserved(p.sku),0)),'Held for existing order balances')}${stat('Free stock',kg(state.products.reduce((s,p)=>s+available(p.sku),0)),'On hand less reservations')}${stat('Below minimum',state.products.filter(p=>available(p.sku)<p.min).length,'Based on free kg for each size')}</ul><p class="ds-small ds-muted">Stock quantities are in kg; dimensions are in mm. Sizes and availability are illustrative.</p>${table('stock-table','Stock variants',['Product','Specification','On hand','Reserved','Free stock','Status','Action'],list.map(p=>[primary(p.sku,p.name+' · '+p.family),primary(p.grade+' · '+p.finish,p.size+' mm'),{html:kg(p.onHand),sort:p.onHand},{html:kg(reserved(p.sku)),sort:reserved(p.sku)},{html:kg(available(p.sku)),sort:available(p.sku)},badge(available(p.sku)<p.min?'Low stock':'Available'),button('Receive stock','open-receipt','plus','ghost',`data-ds-sku="${p.sku}"`)]),{search:true,pageSize:true,filter:params.get('q')||'',tools:select('family-filter','Product family',[['All families','All families'],...['Pipes & tubes','Coils','Wires'].map(x=>[x,x])],family,'data-ds-filter-family')})}${card('Recent stock movements','Receipts increase on-hand kg. A load moving to transit posts a stock issue.',table('movements-table','Recent stock movements',['Date','Product','Movement','Quantity','Reference'],state.movements.slice(0,5).map(m=>[date(m.date),m.sku,esc(m.type),kg(m.qty),esc(m.reference)])))}`;
+    document.querySelector('[data-ds-dialogs]').insertAdjacentHTML('beforeend',dialog('stock-receipt','Receive stock','Record a demo receipt for the exact grade and size. Reservations stay intact.',`${select('receipt-sku','Product',state.products.map(p=>[p.sku,`${p.sku} · ${p.name} · ${p.grade}`]),state.products[0].sku)}${field('receipt-qty','Received quantity (kg)','number','','required min="0.1" max="1000000" step="0.1"')}${field('receipt-reference','Receipt reference','text','','required maxlength="80" placeholder="For example, GRN-26023"')}${textarea('receipt-note','Receipt note','','maxlength="1000"')}`,'Save receipt','receipt'));
+  }
+  function dispatches() {
+    const filter=params.get('status')||'All statuses';
+    const list=state.dispatches.filter(d=>filter==='All statuses'||d.status===filter);
+    main.innerHTML=`<ul class="ds-stats">${stat('Preparing',state.dispatches.filter(d=>d.status==='Preparing').length,'Reserved kg waiting to leave')}${stat('In transit',state.dispatches.filter(d=>d.status==='In transit').length,'Manual transport updates')}${stat('Delivered',state.dispatches.filter(d=>d.status==='Delivered').length,'Delivery acknowledged in the demo')}${stat('Active load kg',kg(state.dispatches.filter(d=>d.status!=='Delivered').reduce((s,d)=>s+dispatchKg(d),0)),'Planned and in-transit net material')}</ul>${table('dispatches-table','Dispatches',['Dispatch','Customer','Status','Net kg','Vehicle','ETA','Action'],list.map(dispatchRow),{search:true,selection:true,pageSize:true,tools:select('dispatch-filter','Status',[['All statuses','All statuses'],...stages.map(x=>[x,x])],filter,'data-ds-filter-dispatch')})}${alert('Start from an allocated order','Use Create dispatch in order detail to carry the product quantities into a full or partial load.')}`;
+  }
+  function dispatchDetail() {
+    const d=state.dispatches.find(d=>d.id===(params.get('id')||'DN-26017'));
+    if(!d){main.innerHTML=emptyScreen('Dispatch not found','This record is not in the current demo.','dispatches');return;}
+    const o=orderOf(d), c=customerOf(o), stage=stages.indexOf(d.status);
+    document.querySelector('h1').textContent=d.id;document.querySelector('[data-ds-subtitle]').textContent=c.name+' · '+c.city;
+    main.innerHTML=`<div class="ds-demo__line"><div class="ds-demo__actions">${badge(d.status)}<span class="ds-small ds-muted">${o.id} · ${kg(dispatchKg(d))}</span></div><div class="ds-demo__actions">${link('All dispatches',url('dispatches'),'ghost')}${d.status!=='Delivered'?button('Update dispatch','open-dispatch-update','edit','primary'):''}</div></div><ol class="ds-stepper" aria-label="Dispatch progress">${stages.map((s,i)=>`<li class="ds-stepper__step" ${i<stage||stage===2?'data-state="done"':''} ${i===stage?'aria-current="step"':''}><span class="ds-stepper__marker" aria-hidden="true">${icon('check',true)}</span><span class="ds-stepper__label"><span class="ds-sr-only">${i<stage?'Completed: ':i===stage?'Current: ':''}</span>${s}</span></li>`).join('')}</ol>${d.posted?'':alert('This load is planned, not yet issued','The kg are still reserved in stock. Moving the load to transit posts the stock issue once.')}<div class="ds-demo__split"><div class="ds-stack">${card('Load overview','Hisar → '+esc(c.city),dl([['Customer',esc(c.name)],['Order',`<a href="${url('order-detail','id='+o.id)}">${o.id}: ${esc(o.subject)}</a>`],['Customer PO',esc(o.po)],['Vehicle',esc(d.vehicle)],['Transporter',esc(d.transporter)],['Packing',d.packages+' packages'],['Net material',kg(dispatchKg(d))],['Gross weight',kg(d.grossWeight)],['Expected arrival',date(d.eta)],['Order promise',date(o.due)],['Dispatch base value',moneyCell(dispatchValue(d))],['Order still to dispatch',kg(pendingKg(o))]]))}${card('Milestone history','Latest manually recorded update first.',timeline([...d.events].reverse()))}</div><div class="ds-stack">${card('Dispatch documents','Generated from the same saved quantity lines.',`<div class="ds-stack"><div class="ds-demo__row-link"><span class="ds-demo__row-icon">${icon('file-text')}</span><span class="ds-demo__row-body"><strong>Dispatch note</strong><small>Buyer, vehicle, products and net kg</small></span></div>${button('Download dispatch note','download-dispatch','download')}<div class="ds-demo__row-link"><span class="ds-demo__row-icon">${icon('package')}</span><span class="ds-demo__row-body"><strong>Packing list</strong><small>Packages, gross weight and size-wise kg</small></span></div>${button('Download packing list','download-packing','download')}</div>`)}${card('Customer instructions','Notes from the source order.',o.notes.length?o.notes.map(n=>`<article class="ds-demo__note"><p>${esc(n.text)}</p><small>${esc(n.by)}</small></article>`).join(''):'<p class="ds-small ds-muted">No special instructions have been recorded.</p>')}${alert('Sample transport data','This demo records milestones manually. It does not connect to a carrier or issue statutory documents.')}</div></div>${card('Products in this load','Quantities are net kg; the order balance stays on the order.',table('dispatch-lines','Products in this load',['Product','Grade and size','Load kg','Rate (INR/kg)','Value (INR)'],d.lines.map(l=>{const p=productOf(l.sku),rate=o.lines.find(x=>x.sku===l.sku).rate;return [primary(p.sku,p.name),primary(p.grade+' · '+p.finish,p.size+' mm'),kg(l.qty),moneyCell(rate),moneyCell(l.qty*rate)];})))}`;
+    if(d.status!=='Delivered')document.querySelector('[data-ds-dialogs]').insertAdjacentHTML('beforeend',dialog('update-dispatch','Update dispatch','Confirm the load details before moving it to transit.',`${select('update-stage','Milestone',stages.slice(stage,stage+2).map(x=>[x,x]),d.status)}<div class="ds-demo__form-grid">${field('update-vehicle','Vehicle number','text',d.vehicle,'required maxlength="40"')}${field('update-transporter','Transporter','text',d.transporter,'required maxlength="100"')}${field('update-packages','Packages','number',d.packages,'required min="1" max="100000" step="1"')}${field('update-gross','Gross weight (kg)','number',d.grossWeight,`required min="${dispatchKg(d)}" max="1000000" step="0.1"`)}</div>${field('update-eta','Expected arrival','date',d.eta,'required')}${textarea('update-note','Milestone note','','required maxlength="1000"')}`,'Save update','dispatch-update'));
+  }
+  function customers() {
+    const rows=state.customers.map(c=>{const orders=state.orders.filter(o=>o.customer===c.id);return [primary(c.name,c.contact+' · '+c.email),esc(c.type),esc(c.city),String(orders.length),{html:moneyCell(orders.reduce((s,o)=>s+pendingValue(o),0)),sort:orders.reduce((s,o)=>s+pendingValue(o),0)},link('View orders',url('orders','customer='+c.id),'ghost','arrow-right')];});
+    main.innerHTML=`<div class="ds-demo__line"><p class="ds-small ds-muted">${state.customers.length} fictional dealer and industrial accounts</p>${button('Add customer','open-customer','plus','primary')}</div>${table('customers-table','Customers',['Customer','Type','Location','Orders','Pending value (INR)','Action'],rows,{search:true,pageSize:true,filter:params.get('q')||''})}${alert('The customer’s complete order history','Use View orders to see the buyer’s commitments and the loads already sent against them.')}`;
+    document.querySelector('[data-ds-dialogs]').insertAdjacentHTML('beforeend',dialog('new-customer','Add customer','Create a fictional account for your walkthrough.',`${field('customer-name','Company name','text','','required maxlength="120"')}<div class="ds-demo__form-grid">${field('customer-contact','Contact name','text','','required maxlength="100"')}${field('customer-city','Delivery city','text','','required maxlength="80"')}</div>${field('customer-email','Email address','email','','required maxlength="160"')}${select('customer-type','Customer type',[['Dealer','Dealer'],['Industrial','Industrial']],'Dealer')}${field('customer-terms','Payment terms','text','Advance before dispatch','required maxlength="160"')}`,'Save customer','customer'));
+  }
+  const currentOrder = () => state.orders.find(o=>o.id===(params.get('id')||'SO-26048'));
+  const currentDispatch = () => state.dispatches.find(d=>d.id===(params.get('id')||'DN-26017'));
+  const clean = (form,id) => form.elements.namedItem(id).value.trim();
+  const formError = (form,message) => { const el=form.querySelector('[data-ds-form-error]'); if(el){el.textContent=message;el.hidden=false;}else toast(message,'danger'); };
+  const nextId = (prefix,list,start) => prefix+'-'+(Math.max(start-1,...list.map(x=>Number(x.id.split('-')[1])))+1);
+  function setSelect(id,value) {
+    const control=document.getElementById(id), root=control.closest('[data-ds-select]');control.value=value;
+    for(const option of root.querySelectorAll('[role=option]')){
+      const chosen=option.dataset.value===value;option.setAttribute('aria-selected',String(chosen));
+      if(chosen)root.querySelector('.ds-select__value').textContent=option.firstElementChild.textContent;
+    }
+  }
+  function csv(rows) {
+    return '\uFEFF'+rows.map(row=>row.map(v=>{let s=String(v??'');if(/^[=+@\-\t\r]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"';}).join(',')).join('\r\n');
+  }
+  function download(name,rows) {
+    const blob=new Blob([csv(rows)],{type:'text/csv;charset=utf-8'}), a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000);toast(name+' downloaded');
+  }
+  document.addEventListener('change',event=>{
+    const el=event.target;
+    if(el.id==='demo-role'){state.role=el.value;go('Switched to '+state.role+' view');}
+    if(el.matches('[data-ds-filter-order], [data-ds-filter-dispatch], [data-ds-filter-family]')){
+      const next=new URL(location.href);next.searchParams.set(el.matches('[data-ds-filter-family]')?'family':'status',el.value);location.href=next.href;
+    }
+    if(el.matches('[data-ds-line-product]'))document.getElementById('line-rate-'+el.dataset.dsLineProduct).value=productOf(el.value).rate;
+  });
+  document.addEventListener('click',event=>{
+    const el=event.target.closest('[data-ds-action]');if(!el)return;
+    const action=el.dataset.dsAction, o=currentOrder();
+    const open=id=>document.getElementById(id).showModal();
+    if(action==='open-order')open('new-order');
+    if(action==='watch-video')open('walkthrough-video');
+    if(action==='open-customer')open('new-customer');
+    if(action==='open-new-dispatch')open('new-dispatch');
+    if(action==='open-dispatch-update')open('update-dispatch');
+    if(action==='open-receipt'){setSelect('receipt-sku',el.dataset.dsSku);open('stock-receipt');}
+    if(action==='add-line'){
+      const list=document.querySelector('[data-ds-order-lines]');if(list.children.length>=8)return toast('Keep this demo order to eight product lines.','info');
+      list.insertAdjacentHTML('beforeend',newLine(list.children.length));list.lastElementChild.querySelector('button').focus();
+    }
+    if(action==='reset'){state=clone(SEED);go('Sample data restored.',root+'index.html');}
+    if(action==='clear-search'){const input=el.closest('[data-ds-data-table]').querySelector('[data-ds-data-table-filter]');input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));input.focus();}
+    if(action==='allocate'){
+      if(planned(o))return toast('Update the existing dispatch plan first.','warning');
+      const short=shortages(o);if(short.length)return toast(short.map(l=>l.sku+' needs '+kg(round(needed(l)-available(l.sku)))+' more').join('; '),'warning');
+      if(!o.lines.some(l=>needed(l)>0))return toast('All remaining kg are already reserved.','info');
+      o.lines.forEach(l=>l.reserved=round(l.reserved+needed(l)));o.notes.unshift({date:today(),by:who(),text:'Remaining quantities allocated against free stock.'});go('Stock allocated. You can now create a dispatch.');
+    }
+    if(action==='export'){
+      const t=document.getElementById(el.dataset.dsTableId), selected=el.hasAttribute('data-ds-selected');
+      const heads=[...t.tHead.rows[0].cells].filter(c=>!c.classList.contains('ds-table__check')&&c.textContent.trim()!=='Action').map(c=>c.textContent.trim());
+      const rows=[...t.tBodies[0].rows].filter(r=>!r.hidden&&!r.classList.contains('ds-table__empty')&&(!selected||r.querySelector('[data-ds-table-select]:checked'))).map(r=>[...r.cells].filter(c=>!c.classList.contains('ds-table__check')&&!c.classList.contains('ds-table__actions')).map(c=>c.innerText.replace(/\n/g,' ').trim()));
+      if(!rows.length)return toast('No visible records to export.','info');download(t.id+'.csv',[heads,...rows]);
+    }
+    if(action==='download-order')download(o.id+'.csv',[
+      ['JNB Steel','Sample order summary'],['Order',o.id],['Customer',customerOf(o).name],['PO',o.po],['Promise',o.due],['Currency','INR'],['SKU','Product','Grade','Size (mm)','Ordered kg','Reserved kg','Dispatched kg','Rate INR/kg','Base value INR'],
+      ...o.lines.map(l=>{const p=productOf(l.sku);return [l.sku,p.name,p.grade,p.size,l.qty,l.reserved,l.dispatched,l.rate,(l.qty*l.rate).toFixed(2)];}),['Order base value INR',total(o).toFixed(2)],['Pending base value INR',pendingValue(o).toFixed(2)],['Notice','Fictional demo. Rates exclude freight and taxes.']
+    ]);
+    if(action==='download-dispatch'||action==='download-packing'){
+      const d=currentDispatch(), order=orderOf(d), c=customerOf(order);
+      download(d.id+(action==='download-packing'?'-packing-list.csv':'.csv'),[
+        ['JNB Steel',action==='download-packing'?'Sample packing list':'Sample dispatch note'],['Dispatch',d.id],['Order',order.id],['PO',order.po],['Customer',c.name],['Delivery city',c.city],['Vehicle',d.vehicle],['Transporter',d.transporter],['Milestone',d.status],['Net kg',dispatchKg(d)],['Gross kg',d.grossWeight],['Packages',d.packages],['ETA',d.eta],
+        ['SKU','Product','Grade','Size (mm)','Finish','Load kg'],...d.lines.map(l=>{const p=productOf(l.sku);return [p.sku,p.name,p.grade,p.size,p.finish,l.qty];}),['Notice','Fictional demonstration only. Not a statutory or commercial document.']
+      ]);
+    }
+    if(action.startsWith('panel-')){
+      const panel=document.querySelector('[data-ds-chart-panel]');
+      if(action==='panel-loading')panel.innerHTML='<div class="ds-stack" role="status" aria-busy="true"><span class="ds-sr-only">Loading chart preview</span><span class="ds-skeleton ds-skeleton--title"></span><span class="ds-skeleton ds-skeleton--media"></span><p class="ds-small ds-muted">Loading preview. Choose Restore to return to the chart.</p></div>';
+      if(action==='panel-error')panel.innerHTML=empty('Order mix could not load','This is an error-state preview. Retry restores the sample chart.',button('Try again','panel-restore','refresh'));
+      if(action==='panel-restore'){panel.innerHTML=chartHTML();window.DS.chart.init(panel.querySelector('[data-ds-chart]'));}
+    }
+  });
+  document.addEventListener('submit',event=>{
+    const form=event.target.closest('[data-ds-form]');if(!form)return;
+    event.preventDefault();if(!form.reportValidity())return;
+    const type=form.dataset.dsForm, o=currentOrder();
+    if(type==='order'){
+      const lines=[...form.querySelectorAll('[data-ds-order-line]')].map((_,i)=>({sku:clean(form,'line-sku-'+i),qty:Number(clean(form,'line-qty-'+i)),rate:Number(clean(form,'line-rate-'+i)),reserved:0,dispatched:0}));
+      if(!clean(form,'order-po')||!clean(form,'order-subject'))return formError(form,'Enter a customer PO and order description.');
+      if(new Set(lines.map(l=>l.sku)).size!==lines.length)return formError(form,'Use one line per product variant. Combine repeated quantities.');
+      if(clean(form,'order-due')<state.asOf)return formError(form,'Choose a promise date on or after '+date(state.asOf)+'.');
+      const id=nextId('SO',state.orders,26049);state.orders.unshift({id,customer:clean(form,'order-customer'),po:clean(form,'order-po'),subject:clean(form,'order-subject'),owner:clean(form,'order-owner'),created:state.asOf,due:clean(form,'order-due'),lines,notes:[]});
+      go('Order saved. Review the sizes and allocate stock.',url('order-detail','id='+id));
+    }
+    if(type==='receipt'){
+      const sku=clean(form,'receipt-sku'), qty=Number(clean(form,'receipt-qty')), reference=clean(form,'receipt-reference');
+      if(!reference)return formError(form,'Enter a receipt reference.');
+      if(state.movements.some(m=>m.type==='Receipt'&&m.reference.toLowerCase()===reference.toLowerCase()&&m.sku===sku))return formError(form,'This product and receipt reference are already recorded.');
+      const p=productOf(sku);p.onHand=round(p.onHand+qty);state.movements.unshift({date:today(),sku,type:'Receipt',qty,reference,note:clean(form,'receipt-note')});
+      const back=params.get('return');go('Receipt saved. '+kg(available(sku))+' is now free.',back&&state.orders.some(o=>o.id===back)?url('order-detail','id='+back):location.href);
+    }
+    if(type==='note'){
+      const text=clean(form,'note-text');if(!text)return formError(form,'Enter a note before saving.');
+      o.notes.unshift({date:today(),by:who(),text});go('Note saved.',url('order-detail','id='+o.id)+'#notes');
+    }
+    if(type==='dispatch-plan'){
+      const existing=planned(o);if(existing){location.href=url('dispatch-detail','id='+existing.id);return;}
+      const lines=o.lines.map((l,i)=>({sku:l.sku,qty:Number(clean(form,'dispatch-qty-'+i))})).filter(l=>l.qty>0);
+      if(!lines.length)return formError(form,'Enter a positive quantity for at least one product.');
+      if(lines.some(l=>l.qty>o.lines.find(x=>x.sku===l.sku).reserved))return formError(form,'A dispatch cannot exceed its reserved quantity.');
+      if(clean(form,'dispatch-eta')<state.asOf)return formError(form,'Choose an arrival date on or after '+date(state.asOf)+'.');
+      const id=nextId('DN',state.dispatches,26018);state.dispatches.unshift({id,order:o.id,status:'Preparing',posted:false,lines,vehicle:'To be assigned',transporter:'To be assigned',packages:0,grossWeight:0,eta:clean(form,'dispatch-eta'),created:state.asOf,events:[{date:today(),status:'Preparing',by:who(),text:clean(form,'dispatch-note')||'Dispatch planned against reserved stock. Add vehicle and packing details.'}]});
+      go('Dispatch planned. Stock remains reserved until the load moves to transit.',url('dispatch-detail','id='+id));
+    }
+    if(type==='dispatch-update'){
+      const d=currentDispatch(), order=orderOf(d), next=clean(form,'update-stage');
+      const vehicle=clean(form,'update-vehicle'), transporter=clean(form,'update-transporter'), note=clean(form,'update-note');
+      if(!note||!vehicle||!transporter)return formError(form,'Enter vehicle, transporter and milestone details.');
+      if(next!=='Preparing'&&[vehicle,transporter].some(v=>v==='To be assigned'))return formError(form,'Assign a vehicle and transporter before moving this load to transit.');
+      if(clean(form,'update-eta')<d.created)return formError(form,'Arrival must be on or after the dispatch creation date.');
+      if(next==='In transit'&&!d.posted){
+        if(d.lines.some(l=>productOf(l.sku).onHand<l.qty||order.lines.find(x=>x.sku===l.sku).reserved<l.qty))return formError(form,'Reserved stock changed. Review the source order before issuing the load.');
+        for(const l of d.lines){const item=order.lines.find(x=>x.sku===l.sku);productOf(l.sku).onHand=round(productOf(l.sku).onHand-l.qty);item.reserved=round(item.reserved-l.qty);item.dispatched=round(item.dispatched+l.qty);state.movements.unshift({date:today(),sku:l.sku,type:'Dispatch',qty:l.qty,reference:d.id,note:'Issued to '+customerOf(order).name});}
+        d.posted=true;
+      }
+      Object.assign(d,{status:next,vehicle,transporter,packages:Number(clean(form,'update-packages')),grossWeight:Number(clean(form,'update-gross')),eta:clean(form,'update-eta')});d.events.push({date:today(),status:next,by:who(),text:note});
+      go('Dispatch updated. '+(d.posted?'Stock issue is recorded.':'The load is still reserved.'));
+    }
+    if(type==='customer'){
+      const ids=['customer-name','customer-contact','customer-city','customer-email','customer-terms'];if(ids.some(id=>!clean(form,id)))return formError(form,'Complete all customer details.');
+      if(state.customers.some(c=>c.name.toLowerCase()===clean(form,'customer-name').toLowerCase()))return formError(form,'This company is already in the customer list.');
+      const id='C-'+(Math.max(100,...state.customers.map(c=>Number(c.id.slice(2))))+1);state.customers.push({id,name:clean(form,'customer-name'),contact:clean(form,'customer-contact'),city:clean(form,'customer-city'),email:clean(form,'customer-email'),terms:clean(form,'customer-terms'),type:clean(form,'customer-type')});go('Customer saved. You can now add an order for this account.');
+    }
+  });
+  common();
+  if(page==='overview')document.querySelector('[data-ds-dialogs]').insertAdjacentHTML('beforeend',videoDialog());
+  document.addEventListener('close',event=>event.target.querySelector?.('video')?.pause(),true);
+  ({overview,map:mapPage,dashboard,orders,'order-detail':orderDetail,stock,dispatches,'dispatch-detail':dispatchDetail,customers})[page]();
+  const flash=state.flash;delete state.flash;save();
+  window.addEventListener('load',()=>{if(flash)toast(flash);});
+})();
