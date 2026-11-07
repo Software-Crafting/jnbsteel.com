@@ -58,6 +58,12 @@ Each page has a top agency attribution with `jnb-steel-demo` UTM source/campaign
 
 This prototype uses local browser data. Roles are walkthrough views. It has no backend, authentication, real stock connection, carrier tracking, email delivery, accounting or statutory document integration. CSV documents are illustrative.
 
+## Standard-system planning
+
+The [researched system plan](planning/STANDARD_SYSTEM_PLAN.md) covers the proposed operations and manufacturing scope, current demo gaps, phased delivery, roles, data controls and acceptance scenarios. The [page catalog](planning/PAGE_CATALOG.csv) records fields, actions, dependencies and applicability for each workspace; [research notes](planning/RESEARCH_NOTES.md) distinguish company evidence from recommendations and discovery questions.
+
+This is a planning proposal. The additional workspaces are not implemented in this demo. The original `PLAN.md` remains the build record for the current prototype.
+
 ## GitHub Pages
 
 The repository is [Software-Crafting/jnbsteel.com](https://github.com/Software-Crafting/jnbsteel.com). Keep `.nojekyll` and select `main` and **/(root)** under GitHub **Settings → Pages**. All page and asset paths are relative, supporting `https://software-crafting.github.io/jnbsteel.com/`. GitHub Pages activation is managed separately in repository settings.
