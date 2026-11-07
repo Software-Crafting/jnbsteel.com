@@ -60,3 +60,5 @@ The dependency-free checks cover material/ledger reconciliation, atomic allocati
 [System plan](planning/STANDARD_SYSTEM_PLAN.md), [page catalog](planning/PAGE_CATALOG.csv) and [research notes](planning/RESEARCH_NOTES.md) preserve the original proposal and assumptions. The 63 internal workspaces are now represented in the demo; conditional external portals and advanced expansion remain outside this release. `PLAN.md` records the build approach.
 
 Origin: [Software-Crafting/jnbsteel.com](https://github.com/Software-Crafting/jnbsteel.com). For GitHub Pages, keep `.nojekyll` and select `main` and **/(root)** in repository settings. Each page has a top Software Crafting attribution with client-specific UTM values. Brand tokens remain in `tokens/theme.css`; the reference design-system repository is unchanged.
+
+After changing CSS or JavaScript, run `python3 tools/stamp-assets.py` before committing. It adds content hashes to local asset URLs on all 65 HTML pages so GitHub Pages/browser caches cannot mix an older application script with the latest page shell. This is source housekeeping, not a runtime build dependency.
