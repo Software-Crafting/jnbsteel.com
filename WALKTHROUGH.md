@@ -1,16 +1,13 @@
-# JNB Steel walkthrough script
+# JNB Steel manual walkthrough
 
-Suggested opening: “This is an illustrative workspace for JNB Steel's sales, store and dispatch teams. It keeps the customer PO, grade, size, quantity and delivery commitment connected.”
+1. Open the page map to explore all 63 internal workspaces.
+2. Open Incoming inspection for `BND-GRN-024`. Its 1,000 kg is quarantined. Enter accepted/rejected quantities, sample evidence, an available instrument and a disposition note.
+3. Open `SO-26048`, allocate its released stock, then create a partial dispatch of 600 kg square tube and 200 kg rectangular tube.
+4. Open Picking and packing for that dispatch. Copy its actual picked unit labels into the verification field, record packages and a check note.
+5. Record a sample weighment: 5,000 kg vehicle tare, 5,820 kg gross and 20 kg packing reconciles the 800 kg material load. Add vehicle, transporter and release evidence.
+6. Move the dispatch to transit. On-hand stock and reservations reduce once; 1,200 kg remains to dispatch. Open traceability for a picked unit.
+7. Create an invoice from the posted dispatch, issue the sample invoice and allocate a fictional customer receipt. Billing does not issue stock again.
+8. Open `WO-26008`, start production and record partial batch output. Review unfinished WIP, separately labeled remnants/scrap and the mass balance. Inspect finished output before allocating it.
+9. Explore purchase matching, supplier payments, transfers/counts, returns/credits, job work, maintenance, imports and audit.
 
-1. **Dashboard:** show open orders, pending base value, low-stock variants and active dispatches. Explain that the role menu changes the suggested task for each team.
-2. **Orders:** find `SO-26048`, Aarav Fabrication Works. Show the PO and promised date, then open the size-wise quantities.
-3. **Shortage:** the square tube line requires 1,500 kg; 920 kg is free. Allocation is blocked until its 580 kg shortage is resolved.
-4. **Receipt:** record 1,000 kg for `SS-202-SQ-025`. Save and return to the order. The system now has enough free kg for both lines.
-5. **Allocation:** reserve 1,500 kg square tube and 500 kg rectangular tube. Other orders cannot use the same reserved kg.
-6. **Partial load:** plan 600 kg square tube and 200 kg rectangular tube. Add vehicle, transporter, packages and gross weight, then mark the load in transit.
-7. **Balance:** physical stock is issued once. The order shows 800 kg dispatched and 1,200 kg still to dispatch, with the remaining quantities reserved.
-8. **Documents:** open the linked dispatch, download its packing list, and show the milestone history. Return to the order to review notes or plan the balance.
-
-Suggested close: “We would adapt these steps to your actual process after a short requirements discussion. Which part of the handoff creates the most follow-up for your team today?”
-
-Use the recorded video in `assets/jnb-steel-walkthrough.webm` for a short silent preview. All displayed material rates and stock positions are sample data.
+All records are fictional and saved in this browser. Role switches are previews. No live authentication, accounting, tax document, bank, scale or carrier is connected. Financial values exclude freight and taxes. Reset through About this demo to restore the initial state.
